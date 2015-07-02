@@ -5,7 +5,7 @@
       "loopback/common/models"
     ]
   },
-  "Customer": {
+  "Robot": {
     "dataSource": "db"
   }
 }
