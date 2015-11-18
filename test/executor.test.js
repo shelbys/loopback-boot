@@ -1,3 +1,4 @@
+var async = require('async');
 var boot = require('../');
 var path = require('path');
 var loopback = require('loopback');
@@ -10,6 +11,7 @@ var supertest = require('supertest');
 var os = require('os');
 
 var SIMPLE_APP = path.join(__dirname, 'fixtures', 'simple-app');
+var ENV_APP = path.join(__dirname, 'fixtures', 'env-app');
 
 var app;
 
@@ -292,7 +294,7 @@ describe('executor', function() {
       });
     });
 
-    describe ('for mixins', function() {
+    describe('for mixins', function() {
       var options;
       beforeEach(function() {
         appdir.writeFileSync('custom-mixins/example.js',
@@ -338,12 +340,14 @@ describe('executor', function() {
       delete process.env.npm_config_host;
       delete process.env.OPENSHIFT_SLS_IP;
       delete process.env.OPENSHIFT_NODEJS_IP;
+      delete process.env.VCAP_APP_HOST;
       delete process.env.HOST;
       delete process.env.npm_package_config_host;
 
       delete process.env.npm_config_port;
       delete process.env.OPENSHIFT_SLS_PORT;
       delete process.env.OPENSHIFT_NODEJS_PORT;
+      delete process.env.VCAP_APP_PORT;
       delete process.env.PORT;
       delete process.env.npm_package_config_port;
     });
@@ -373,6 +377,7 @@ describe('executor', function() {
       assertHonored('npm_config_port', 'npm_config_host');
       assertHonored('npm_package_config_port', 'npm_package_config_host');
       assertHonored('OPENSHIFT_SLS_PORT', 'OPENSHIFT_SLS_IP');
+      assertHonored('VCAP_APP_PORT', 'VCAP_APP_HOST');
       assertHonored('PORT', 'HOST');
     });
 
@@ -381,6 +386,7 @@ describe('executor', function() {
       process.env.npm_config_host = randomHost();
       process.env.OPENSHIFT_SLS_IP = randomHost();
       process.env.OPENSHIFT_NODEJS_IP = randomHost();
+      process.env.VCAP_APP_HOST = randomHost();
       process.env.HOST = randomHost();
       process.env.npm_package_config_host = randomHost();
 
@@ -392,6 +398,7 @@ describe('executor', function() {
       process.env.npm_config_port = randomPort();
       process.env.OPENSHIFT_SLS_PORT = randomPort();
       process.env.OPENSHIFT_NODEJS_PORT = randomPort();
+      process.env.VCAP_APP_PORT = randomPort();
       process.env.PORT = randomPort();
       process.env.npm_package_config_port = randomPort();
 
@@ -423,6 +430,178 @@ describe('executor', function() {
       boot.execute(app, someInstructions({ config: { port: 3000 } }));
       assert.equal(app.get('port'), NAMED_PORT);
     });
+  });
+
+  describe('with middleware.json', function() {
+    it('should parse a simple config variable', function(done) {
+      boot.execute(app, simpleMiddlewareConfig('routes',
+        { path: '${restApiRoot}' }
+      ));
+
+      supertest(app).get('/').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.path).to.equal(app.get('restApiRoot'));
+        done();
+      });
+    });
+
+    it('should parse multiple config variables', function(done) {
+      boot.execute(app, simpleMiddlewareConfig('routes',
+        { path: '${restApiRoot}', env: '${env}' }
+      ));
+
+      supertest(app).get('/').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.path).to.equal(app.get('restApiRoot'));
+        expect(res.body.env).to.equal(app.get('env'));
+        done();
+      });
+    });
+
+    it('should parse config variables in an array', function(done) {
+      boot.execute(app, simpleMiddlewareConfig('routes',
+        { paths: ['${restApiRoot}'] }
+      ));
+
+      supertest(app).get('/').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.paths).to.eql(
+          [app.get('restApiRoot')]
+          );
+        done();
+      });
+    });
+
+    it('should parse config variables in an object', function(done) {
+      boot.execute(app, simpleMiddlewareConfig('routes',
+        { info: { path: '${restApiRoot}' } }
+      ));
+
+      supertest(app).get('/').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.info).to.eql({
+          path: app.get('restApiRoot')
+        });
+        done();
+      });
+    });
+
+    it('should parse config variables in a nested object', function(done) {
+      boot.execute(app, simpleMiddlewareConfig('routes',
+        { nested: { info: { path: '${restApiRoot}' } } }
+      ));
+
+      supertest(app).get('/').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.nested).to.eql({
+          info: { path: app.get('restApiRoot') }
+        });
+        done();
+      });
+    });
+
+    it('should not parse invalid config variables', function(done) {
+      var invalidDataTypes = [undefined, function() {}];
+      async.each(invalidDataTypes, function(invalidDataType, cb) {
+        var config = simpleMiddlewareConfig('routes', {
+          path: invalidDataType
+        });
+        boot.execute(app, config);
+
+        supertest(app)
+          .get('/')
+          .end(function(err, res) {
+            expect(err).to.be.null();
+            expect(res.body.path).to.be.undefined();
+            cb();
+          });
+      }, done);
+    });
+
+    it('should parse valid config variables', function(done) {
+      var config = simpleMiddlewareConfig('routes', {
+        props: ['a', '${vVar}', 1, true, function() {}, {x:1, y: '${y}'}]
+      });
+      boot.execute(app, config);
+
+      supertest(app)
+        .get('/')
+        .end(function(err, res) {
+          expect(err).to.be.null();
+          done();
+        });
+    });
+  });
+
+  describe('with component-config.json', function() {
+
+    it('should parse a simple config variable', function(done) {
+      boot.execute(app, simpleComponentConfig(
+        { path: '${restApiRoot}' }
+      ));
+
+      supertest(app).get('/component').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.path).to.equal(app.get('restApiRoot'));
+        done();
+      });
+    });
+
+    it('should parse multiple config variables', function(done) {
+      boot.execute(app, simpleComponentConfig(
+        { path: '${restApiRoot}', env: '${env}' }
+      ));
+
+      supertest(app).get('/component').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.path).to.equal(app.get('restApiRoot'));
+        expect(res.body.env).to.equal(app.get('env'));
+        done();
+      });
+    });
+
+    it('should parse config variables in an array', function(done) {
+      boot.execute(app, simpleComponentConfig(
+        { paths: ['${restApiRoot}'] }
+      ));
+
+      supertest(app).get('/component').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.paths).to.eql(
+          [app.get('restApiRoot')]
+          );
+        done();
+      });
+    });
+
+    it('should parse config variables in an object', function(done) {
+      boot.execute(app, simpleComponentConfig(
+        { info: { path: '${restApiRoot}' } }
+      ));
+
+      supertest(app).get('/component').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.info).to.eql({
+          path: app.get('restApiRoot')
+        });
+        done();
+      });
+    });
+
+    it('should parse config variables in a nested object', function(done) {
+      boot.execute(app, simpleComponentConfig(
+        { nested: { info: { path: '${restApiRoot}' } } }
+      ));
+
+      supertest(app).get('/component').end(function(err, res) {
+        if (err) return done(err);
+        expect(res.body.nested).to.eql({
+          info: { path: app.get('restApiRoot') }
+        });
+        done();
+      });
+    });
+
   });
 
   it('calls function exported by boot/init.js', function() {
@@ -581,7 +760,48 @@ describe('executor', function() {
       .get('/')
       .expect('passport', 'initialized', done);
   });
+
+  describe('when booting with env', function() {
+    it('should set the `booting` flag during execution', function(done) {
+      expect(app.booting).to.be.undefined();
+      boot.execute(app, envAppInstructions(), function(err) {
+        if (err) return done(err);
+        expect(app.booting).to.be.false();
+        expect(process.bootFlags).to.not.have.property('barLoadedInTest');
+        done();
+      });
+    });
+  });
+
 });
+
+function simpleMiddlewareConfig(phase, params) {
+  return someInstructions({
+    middleware: {
+      phases: [phase],
+      middleware: [
+        {
+          sourceFile: path.join(__dirname, './fixtures/simple-middleware.js'),
+          config: {
+            phase: phase,
+            params: params
+          }
+        }
+      ]
+    }
+  });
+}
+
+function simpleComponentConfig(config) {
+  return someInstructions({
+    components: [
+      {
+        sourceFile: path.join(__dirname, './fixtures/simple-component.js'),
+        config: config
+      }
+    ]
+  });
+}
 
 function assertValidDataSource(dataSource) {
   // has methods
@@ -624,4 +844,12 @@ function simpleAppInstructions() {
   // Copy it so that require will happend again
   fs.copySync(SIMPLE_APP, appdir.PATH);
   return boot.compile(appdir.PATH);
+}
+
+function envAppInstructions() {
+  fs.copySync(ENV_APP, appdir.PATH);
+  return boot.compile({
+    appRootDir: appdir.PATH,
+    env: 'test'
+  });
 }
