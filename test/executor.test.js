@@ -362,6 +362,11 @@ describe('executor', function() {
       }));
     }
 
+    it('should apply env passed in option object', function() {
+      boot.execute(app, someInstructions({ env: 'custom_env' }));
+      expect(app.get('env')).to.equal('custom_env');
+    });
+
     it('should honor host and port', function() {
       function assertHonored(portKey, hostKey) {
         process.env[hostKey] = randomPort();
@@ -530,6 +535,19 @@ describe('executor', function() {
           expect(err).to.be.null();
           done();
         });
+    });
+
+    it('should preserve object prototypes', function(done) {
+      var config = simpleMiddlewareConfig(
+        'routes',
+        // IMPORTANT we need more than one item to trigger the original issue
+        [/^\/foobar/, /^\/another/],
+        {});
+      boot.execute(app, config);
+
+      supertest(app).get('/foobar')
+        .expect(200)
+        .end(done);
     });
   });
 
@@ -775,17 +793,26 @@ describe('executor', function() {
 
 });
 
-function simpleMiddlewareConfig(phase, params) {
+function simpleMiddlewareConfig(phase, paths, params) {
+  if (params === undefined) {
+    params = paths;
+    paths = undefined;
+  }
+
+  var config = {
+    phase: phase,
+    params: params
+  };
+
+  if (paths) config.paths = paths;
+
   return someInstructions({
     middleware: {
       phases: [phase],
       middleware: [
         {
           sourceFile: path.join(__dirname, './fixtures/simple-middleware.js'),
-          config: {
-            phase: phase,
-            params: params
-          }
+          config: config,
         }
       ]
     }
@@ -831,6 +858,9 @@ function someInstructions(values) {
       boot: []
     }
   };
+
+  if (values.env)
+    result.env = values.env;
 
   if (values.files) {
     for (var k in values.files)

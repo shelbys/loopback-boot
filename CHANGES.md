@@ -1,3 +1,31 @@
+2015-12-22, Version 2.16.0
+==========================
+
+ * executor: allow loopback versions >= 3.0.0-alpha (Miroslav Bajtoš)
+
+
+2015-12-04, Version 2.15.0
+==========================
+
+ * Bluemix prefers HOST/PORT over VCAP_APP_XXXX (Sai Vennam)
+
+ * Set app env if it is supplied in options object (Amir Jafarian)
+
+
+2015-11-24, Version 2.14.2
+==========================
+
+ * executor: preserve RegExps in middleware paths (Miroslav Bajtoš)
+
+
+2015-11-24, Version 2.14.1
+==========================
+
+ * Warn user if missing a config file (Amir Jafarian)
+
+ * Refer to licenses with a link (Sam Roberts)
+
+
 2015-10-14, Version 2.14.0
 ==========================
 
